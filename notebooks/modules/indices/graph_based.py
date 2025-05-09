@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import scipy
 import numpy as np
 from pathlib import Path
@@ -89,8 +91,10 @@ def circuity(graph: nx.MultiGraph | nx.MultiDiGraph, add_property=False):
     network_sum = 0
 
     for u,v,key,data in graph.edges(data=True, keys=True):
-        p1 = (graph._node[u]["geometry"].coords[0][1], graph._node[u]["geometry"].coords[0][0])
-        p2 = (graph._node[v]["geometry"].coords[0][1], graph._node[v]["geometry"].coords[0][0])
+        # p1 = (graph._node[u]["geometry"].coords[0][1], graph._node[u]["geometry"].coords[0][0])
+        # p2 = (graph._node[v]["geometry"].coords[0][1], graph._node[v]["geometry"].coords[0][0])
+        p1 = (graph._node[u]["y"], graph._node[u]["x"])
+        p2 = (graph._node[v]["y"], graph._node[v]["x"])
         
         euclidean_dist = utils.distance(p1,p2, is_geodetic=True)
         euclidean_sum += euclidean_dist
@@ -134,14 +138,6 @@ def average_street_length(graph: nx.MultiGraph | nx.MultiDiGraph, add_property=F
     return average_street_length
 
 
-
-
-
-
-
-
-
-
 def data_has_sidewalk(data):
     if "sidewalk" in data:
         if data["sidewalk"] is not None:
@@ -165,35 +161,11 @@ def data_has_sidewalk(data):
         
     return False
 
-
-def calculate_walking_metrics(walk_g: nx.MultiGraph | nx.MultiDiGraph, drive_g: nx.MultiGraph | nx.MultiDiGraph, area: float):
-    # generalizer = generalize.Generalize()
-    # natural_streets_walking_graph = generalizer.named_streets_generalization(walk_g)
-    
-    walk_number_of_edges = walk_g.number_of_edges()
-    # drive_number_of_edges = drive_g.number_of_edges()
-    # walk_drive_ratio = walk_number_of_edges / drive_number_of_edges
-
-    # connectivity = []
-    # for node_id, data in natural_streets_walking_graph.nodes(data=True):
-    #     edges_len = len(natural_streets_walking_graph[node_id])
-    #     connectivity.append(edges_len)
-
-    # connectivity_array = np.array(connectivity)
-    # connectivity_mean = np.mean(connectivity_array)
-    # connectivity_std = np.std(connectivity_array)
-    # connectivity_range = connectivity_array.max() - connectivity_array.min()
-    # connectivity_90 = (connectivity_range / 10) * 9
-    # connectivity_top_10_len = len(list(filter(lambda x: x > connectivity_90, connectivity_array)))
-
-    # intersection count for undirected graph
-    intersections = 0
-    for node_id in walk_g.nodes():
-        if len(walk_g[node_id]) >= 3:
-            intersections += 1
-
+def average_walking_road_score(graph: nx.MultiGraph | nx.MultiDiGraph, add_property=False):
     road_scores_count = 0
-    for u,v,data in walk_g.edges(data=True):
+    walk_number_of_edges = graph.number_of_edges()
+
+    for u,v,key,data in graph.edges(data=True, keys=True):
         road_score = 0
 
         road_type = data["highway"]
@@ -235,9 +207,113 @@ def calculate_walking_metrics(walk_g: nx.MultiGraph | nx.MultiDiGraph, drive_g: 
 
         # sum of road scores
         road_scores_count += road_score
+        
+        # add property
+        if add_property:
+            graph[u][v][key]["walk_score"] = road_score
 
 
     mean_road_score = road_scores_count / walk_number_of_edges
+    return mean_road_score
+
+def average_cycling_road_score(graph: nx.MultiGraph | nx.MultiDiGraph, add_property=False):
+    road_scores_count = 0
+    bike_number_of_edges = graph.number_of_edges()
+
+    for u,v,key,data in graph.edges(data=True,keys=True):
+        road_score = 0
+        road_type = data["highway"]
+        try:
+            max_speed = int(data["max_speed"])
+        except: max_speed = None
+        if "cycleway" in data:
+            cycleway = data["cycleway"]
+        else: 
+            cycleway = None
+        inclination = data["grade_abs"]
+        is_cycleway = road_type == "cycleway"
+
+        if is_cycleway: 
+            road_score = 5
+        elif cycleway is not None:
+            if cycleway != "no": #includes lane
+                road_score = 4
+        elif "trunk" in road_type:
+            road_score = 0
+        elif "primary" in road_type:
+            road_score = 1
+        elif "secondary" in road_type:
+            road_score = 2
+        elif "tertiary" in road_type:
+            road_score = 3
+        elif road_type == "residential" or road_type == "living_street":
+            road_score = 4
+        else: 
+            road_score = 3
+
+        # decrease score depending on road speed
+        if max_speed is not None:
+            if max_speed >= 50:
+                road_score -= 1
+            elif max_speed >= 80:
+                road_score -= 2
+            
+            if road_score < 0: road_score = 0
+
+        # decrease score depending on inclination
+        if inclination is not None:
+            inclination_percentage = inclination * 100
+            if inclination_percentage < 4: #easy inclination
+                road_score -= 0
+            elif inclination_percentage >= 4 and inclination_percentage < 7: # moderate inclination
+                road_score -= 1
+            elif inclination_percentage >= 7 and inclination_percentage < 9: # challenging
+                road_score -= 2
+            elif inclination_percentage > 9: # hard
+                road_score -= 3
+        
+        if road_score < 0: road_score = 0
+
+        # sum of road scores
+        road_scores_count += road_score
+        
+        # add property
+        if add_property:
+            graph[u][v][key]["bike_score"] = road_score
+
+
+    mean_road_score = road_scores_count / bike_number_of_edges
+    return mean_road_score
+
+
+
+def calculate_walking_metrics(walk_g: nx.MultiGraph | nx.MultiDiGraph, drive_g: nx.MultiGraph | nx.MultiDiGraph, area: float):
+    # generalizer = generalize.Generalize()
+    # natural_streets_walking_graph = generalizer.named_streets_generalization(walk_g)
+    
+    walk_number_of_edges = walk_g.number_of_edges()
+    # drive_number_of_edges = drive_g.number_of_edges()
+    # walk_drive_ratio = walk_number_of_edges / drive_number_of_edges
+
+    # connectivity = []
+    # for node_id, data in natural_streets_walking_graph.nodes(data=True):
+    #     edges_len = len(natural_streets_walking_graph[node_id])
+    #     connectivity.append(edges_len)
+
+    # connectivity_array = np.array(connectivity)
+    # connectivity_mean = np.mean(connectivity_array)
+    # connectivity_std = np.std(connectivity_array)
+    # connectivity_range = connectivity_array.max() - connectivity_array.min()
+    # connectivity_90 = (connectivity_range / 10) * 9
+    # connectivity_top_10_len = len(list(filter(lambda x: x > connectivity_90, connectivity_array)))
+
+    # intersection count for undirected graph
+    intersections = 0
+    for node_id in walk_g.nodes():
+        if len(walk_g[node_id]) >= 3:
+            intersections += 1
+
+   
     # intersection_density = intersections / area
     return {
         # "walk_connectivity_mean": connectivity_mean,
@@ -247,7 +323,6 @@ def calculate_walking_metrics(walk_g: nx.MultiGraph | nx.MultiDiGraph, drive_g: 
         "walk_connectivity_std": 0,
         "walk_connectivity_top_10p": 0,
 
-        "mean_road_score": mean_road_score,
         # "walk_connectivity_mean": connectivity_mean,
         # "walk_connectivity_std": connectivity_std,
         # "walk_connectivity_top_10p": connectivity_top_10_len

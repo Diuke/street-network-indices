@@ -320,6 +320,7 @@ def process_pedestrian_graph(gdf: geopd.GeoDataFrame, assessment=False, slope_th
         if "footway" not in original_edge: original_edge["footway"] = None
 
         for prop in simplified_properties:
+            if prop not in original_edge: original_edge[prop] = None
             simplified[u][v][key][prop] = original_edge[prop]
 
         # define if the pedestrian segment is a sidewalk

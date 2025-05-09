@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import copy
 import networkx as nx
 import osmnx as ox
