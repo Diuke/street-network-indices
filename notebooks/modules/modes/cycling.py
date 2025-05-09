@@ -3,7 +3,31 @@ import numpy as np
 import osmnx as ox
 import modules.utils as utils
 
-CYCLING_GRAPH_EDGE_TAGS = []
+CYCLING_GRAPH_EDGE_TAGS = [
+    "oneway",
+    "lanes",
+    "ref",
+    "name",
+    "highway",
+    "maxspeed",
+    "service",
+    "footway",
+    "access",
+    "width",
+    "est_width",
+    "junction",
+    "sidewalk",
+    "footway",
+    "foot",
+    "bike",
+    "bicycle",
+    "area",
+    "sidewalk:both",
+    "sidewalk:left",
+    "sidewalk:right",
+    "cycleway",
+    "cycling_width"
+]
 CYCLING_GRAPH_NODE_TAGS = []
 
 CYCLING_FIELDS = ["length","name","highway","access","lanes","bicycle","lanes","cycleway"]
@@ -29,7 +53,7 @@ AGGREGATION_FUNCTIONS = {
     "cycleway": ""
 }
 
-def process_cycling_graph(gdf: geopd.GeoDataFrame):
+def process_cycling_graph(gdf: geopd.GeoDataFrame, assessment=False):
     """
     Directed graph
     """
@@ -38,8 +62,8 @@ def process_cycling_graph(gdf: geopd.GeoDataFrame):
     nodes_g = gdf[0].reset_index().reset_index()
     edges_g = gdf[1].reset_index().reset_index()
 
-    nodes_g = nodes_g.replace(np.NaN, None)
-    edges_g = edges_g.replace(np.NaN, None)
+    nodes_g = nodes_g.replace(np.nan, None)
+    edges_g = edges_g.replace(np.nan, None)
 
     # Create columns if they do not exist
     edge_cols = list(edges_g.columns)

@@ -16,7 +16,28 @@ SLOPE_THRESHOLD = 15 # 5 degree (angle) similarity
 SIDEWALK_GRAPH_DEPTH = 5 # Induced subgraph of 10 nodes deep
 """Default BFS graph depth to search for parallel streets and sidewalks."""
 
-PEDESTRIAN_GRAPH_EDGE_TAGS = []
+PEDESTRIAN_GRAPH_EDGE_TAGS = [
+    "oneway",
+    "lanes",
+    "ref",
+    "name",
+    "highway",
+    "service",
+    "footway",
+    "access",
+    "width",
+    "sidewalk",
+    "footway",
+    "foot",
+    "bike",
+    "bicycle",
+    "area",
+    "sidewalk:both",
+    "sidewalk:left",
+    "sidewalk:right",
+    "cycleway",
+    "cycling_width"
+]
 """Edge tags to dowload for pedestrian network."""
 
 PEDESTRIAN_GRAPH_NODE_TAGS = []
@@ -48,6 +69,8 @@ def _pedestrian_remove_sidewalks(
         street_types:list[str], 
         process_edges:list[dict["u":any,"v":any,"key":any,"data":any]], 
         original_graph:nx.MultiGraph, 
+        nodes_gdf:geopd.GeoDataFrame,
+        edges_gdf:geopd.GeoDataFrame,
         dist_threshold:int,
         slope_threshold:int,
         assess=False,
@@ -132,10 +155,14 @@ def _pedestrian_remove_sidewalks(
                 street_buffer = utils.buffer(data["geometry"], buffer_distance, erode_distance)
 
                 # create a subgraph with the induced nodes from the U and V nodes of the edge with a depth of sidewalk_graph_depth
-                subgraph = utils.explore_graph(u, original_graph, SIDEWALK_GRAPH_DEPTH)
+                nearest_idx = edges_gdf.sindex.query(street_buffer, predicate="intersects")
+                edges_in_buffered_graph = edges_gdf.iloc[nearest_idx]
+
+                subgraph = original_graph.edge_subgraph(list(edges_in_buffered_graph.index))
+                #subgraph = utils.explore_graph(u, original_graph, SIDEWALK_GRAPH_DEPTH)
 
                 # Iterate the nodes of the subgraph
-                for sub_e_u, sub_e_v in subgraph:
+                for sub_e_u, sub_e_v in subgraph.edges():
                     # The nodes are integers, but come as strings
                     sub_e_u = int(sub_e_u)
                     sub_e_v = int(sub_e_v)
@@ -207,33 +234,7 @@ def _pedestrian_remove_sidewalks(
 
     return keep_edges
 
-def process_pedestrian_graph(gdf: geopd.GeoDataFrame, assessment=False, slope_threshold=None, dist_threshold=None):
-    """
-    Undirected graph
-    """
-    if slope_threshold is None:
-        slope_threshold = SLOPE_THRESHOLD
-    if dist_threshold is None:
-        dist_threshold = DIST_THRESHOLD
-    # Reset index twice to remove the u,v,k relationship and assign a unique index to
-    # each node and edge
-    nodes_g = gdf[0].reset_index().reset_index()
-    edges_g = gdf[1].reset_index().reset_index()
-
-    nodes_g = nodes_g.replace(np.NaN, None)
-    edges_g = edges_g.replace(np.NaN, None)
-
-    # Create columns if they do not exist
-    edge_cols = list(edges_g.columns)
-    for field in PEDESTRIAN_FIELDS:
-        if field not in edge_cols:
-            edges_g[field] = None
-
-    # keep only the necessary columns
-    edges_g = edges_g[["u","v","key","geometry"] + PEDESTRIAN_FIELDS]
-
-    # Apply pedestrian filters
-    edge_cols = list(edges_g.columns)
+def apply_pedestrian_filters(edges_g: geopd.GeoDataFrame):
     # Remove streets with no access
     edges_g = edges_g.loc[~(edges_g["access"].isin(["no", "customers", "private"]))]
 
@@ -247,6 +248,37 @@ def process_pedestrian_graph(gdf: geopd.GeoDataFrame, assessment=False, slope_th
         ~((edges_g["highway"].isin(["primary", "secondary", "trunk", "primary_link", "secondary_link", "trunk_link"])) &
         (edges_g["sidewalk"] == "no"))
     ]
+    return edges_g
+    
+
+def process_pedestrian_graph(gdf: geopd.GeoDataFrame, assessment=False, slope_threshold=None, dist_threshold=None):
+    """
+    Undirected graph
+    """
+    if slope_threshold is None:
+        slope_threshold = SLOPE_THRESHOLD
+    if dist_threshold is None:
+        dist_threshold = DIST_THRESHOLD
+    # Reset index twice to remove the u,v,k relationship and assign a unique index to
+    # each node and edge
+    nodes_g = gdf[0].reset_index().reset_index()
+    edges_g = gdf[1].reset_index().reset_index()
+
+    nodes_g = nodes_g.replace(np.nan, None)
+    edges_g = edges_g.replace(np.nan, None)
+
+    # Create columns if they do not exist
+    edge_cols = list(edges_g.columns)
+    for field in PEDESTRIAN_FIELDS:
+        if field not in edge_cols:
+            edges_g[field] = None
+
+    # keep only the necessary columns
+    edges_g = edges_g[["u","v","key","geometry"] + PEDESTRIAN_FIELDS]
+    edge_cols = list(edges_g.columns)
+
+    # Apply pedestrian filters
+    edges_g = apply_pedestrian_filters(edges_g)
 
     # reset the edges u,v,key index for rebuilding the graph.
     edges_g = edges_g.set_index(['u', 'v', 'key'])
@@ -265,35 +297,37 @@ def process_pedestrian_graph(gdf: geopd.GeoDataFrame, assessment=False, slope_th
     print("finish rebuilding graph")
     print("start graph simplify")
     remade = ox.simplify_graph(remade, edge_attrs_differ=["foot", "highway", "footway"])
+    
     print("finish graph simplify")
     remade = ox.add_edge_bearings(remade)
     # convert to undirected
     remade = remade.to_undirected()
     simplified = copy.deepcopy(remade)
 
+    # get again the remade nodes and edges for the spatial index
+    nodes_g, edges_g = ox.graph_to_gdfs(remade)
+
     foot_types = ["designated", "yes", "permissive"]
 
     # create a simplified version of the graph only with required information
+
+    simplified_properties = ["highway", "bearing", "geometry", "foot", "footway"]
     for u,v,key,data in simplified.edges(data=True, keys=True):
         # remove all other properties of each edge
         data.clear()
         original_edge = remade[u][v][key]
-        simplified[u][v][key]["highway"] = original_edge["highway"]
-        if "bearing" not in original_edge:
-            original_edge["bearing"] = None
-
-        simplified[u][v][key]["bearing"] = original_edge["bearing"]
-        simplified[u][v][key]["geometry"] = original_edge["geometry"]
-
         if "foot" not in original_edge: original_edge["foot"] = None
         if "footway" not in original_edge: original_edge["footway"] = None
 
+        for prop in simplified_properties:
+            simplified[u][v][key][prop] = original_edge[prop]
+
+        # define if the pedestrian segment is a sidewalk
         simplified[u][v][key]["is_sidewalk"] = (
             (original_edge["highway"] in PEDESTRIAN_TYPES) and (original_edge["footway"] in ["sidewalk","crossing"]) or
             (original_edge["highway"] == "cycleway" and original_edge["foot"] in foot_types) or
             (original_edge["highway"] == "footway" and original_edge["footway"] is None)
         )
-        #simplified[u][v][key]["is_pedestrian"] = (original_edge["highway"] in PEDESTRIAN_TYPES) or (original_edge["foot"] in foot_types)
     
     # Copy to modify edges it without tampering the original
     edges = simplified.edges(data=True, keys=True)
@@ -325,6 +359,8 @@ def process_pedestrian_graph(gdf: geopd.GeoDataFrame, assessment=False, slope_th
                 street_types, 
                 partition, 
                 simplified_ref, 
+                nodes_g,
+                edges_g,
                 dist_threshold,
                 slope_threshold,
                 assess=assessment
@@ -338,6 +374,8 @@ def process_pedestrian_graph(gdf: geopd.GeoDataFrame, assessment=False, slope_th
                 street_types, 
                 partition, 
                 simplified, 
+                nodes_g,
+                edges_g,
                 dist_threshold,
                 slope_threshold,
                 assess=assessment

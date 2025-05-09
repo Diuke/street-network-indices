@@ -69,6 +69,10 @@ def process_public_transport_graph(geom: shapely.Polygon):
     # Add edges from the relations.
     # The OSM relation gives in order the nodes composing each route. 
     for rel in relations:
+        if "tags" not in rel:
+            # If the relation has no tags go to the next one
+            continue
+        
         rel_metadata = rel["tags"]
         node_list = list(filter(lambda x: x["type"] != "way" and (x["role"] == "stop" or x["role"] == "platform"), rel["members"]))
         

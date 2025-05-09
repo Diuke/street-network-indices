@@ -4,6 +4,7 @@ from OpenStreetMap for network analysis.
 
 Networks are downloaded using OSMnx and postprocessed to reduce inconsistencies between the reality and OSM. 
 """
+from __future__ import annotations
 
 import json
 import copy
@@ -15,6 +16,7 @@ from osmnx import settings
 import shapely
 import ray
 from modules.modes import pedestrian, cycling, driving, public_transport
+from modules import assess
 
 class NetworkExtractor():
     """
@@ -25,7 +27,7 @@ class NetworkExtractor():
     
     """
 
-    DATA_BASE_PATH = "/home/geolab/Desktop/Research/data"
+    DATA_BASE_PATH = "/home/user/Desktop/JP/street-network-indices/data"
     """
     Absolute base path where data is stored. All saving and loading operations are made relative to this path.
     """
@@ -127,6 +129,7 @@ class NetworkExtractor():
         network_type = net_type
 
         # Select the custom filter, if available, for each type of transportation mode
+        graph_edge_tags = self.WAY_TAGS
         if net_type == "walk":
             custom_filter = pedestrian.CUSTOM_WALK_FILTER
             graph_node_tags = pedestrian.PEDESTRIAN_GRAPH_NODE_TAGS
@@ -165,7 +168,7 @@ class NetworkExtractor():
                     settings.useful_tags_node.append(n_t)
             
             # Set the custom tags for OSMnx.
-            settings.useful_tags_way = self.WAY_TAGS
+            settings.useful_tags_way = graph_edge_tags
             
             # Use the OSMnx graph_from_polygon functionality to download a preliminary network with the custom filter
             g = ox.graph_from_polygon(
@@ -252,14 +255,14 @@ class NetworkExtractor():
             else:
                 nodes = nodes.reset_index(drop=False)
 
-            nodes = nodes.replace(np.NaN, None)
+            nodes = nodes.replace(np.nan, None)
 
             if "osmid" in list(edges.columns):
                 edges = edges.reset_index(drop=True)
             else:
                 edges = edges.reset_index(drop=False)
 
-            edges = edges.replace(np.NaN, None)
+            edges = edges.replace(np.nan, None)
 
         if node_attributes is not None:
             node_columns = node_attributes
@@ -452,3 +455,76 @@ class NetworkExtractor():
             ox.add_edge_grades(g)
 
         return g
+    
+    def assess_network(self, net_type: str, geometry: shapely.Polygon, options: dict = {}) -> nx.MultiDiGraph | nx.MultiGraph:
+        """
+        Download and assess a pedestrian or cycling network.
+        """
+        
+        # Pedestrian or Cycling
+        network_type = net_type
+
+        # Select the custom filter, if available, for each type of transportation mode
+        graph_edge_tags = self.WAY_TAGS
+        if net_type == "walk":
+            custom_filter = pedestrian.CUSTOM_WALK_FILTER
+            graph_node_tags = pedestrian.PEDESTRIAN_GRAPH_NODE_TAGS
+            graph_edge_tags = pedestrian.PEDESTRIAN_GRAPH_EDGE_TAGS
+        elif net_type == "bike":
+            custom_filter = cycling.CUSTOM_CYCLING_FILTER
+            graph_node_tags = cycling.CYCLING_GRAPH_NODE_TAGS
+            graph_edge_tags = cycling.CYCLING_GRAPH_EDGE_TAGS
+        else:
+            # The network type is not supported.
+            raise Exception("Network type not supported")
+        
+        # avoid cache problems by disabling it
+        settings.use_cache = False
+
+        # set the tags for download
+        for n_t in self.NODE_TAGS:
+            if n_t not in settings.useful_tags_node:
+                settings.useful_tags_node.append(n_t)
+        
+        # Set the custom tags for OSMnx.
+        settings.useful_tags_way = graph_edge_tags
+        
+        # Use the OSMnx graph_from_polygon functionality to download a preliminary network with the custom filter
+        g = ox.graph_from_polygon(
+            geometry,
+            network_type=network_type, 
+            custom_filter=custom_filter,
+            simplify=False,
+            retain_all=True,
+            truncate_by_edge=True
+        )
+        graph_metadata = copy.deepcopy(g.graph)
+
+        # Report some stats
+        print("finish download")
+        print(f"Raw number of edges: {g.number_of_edges()}")
+        print(f"Raw number of nodes: {g.number_of_nodes()}")
+
+        # The graph is directed by default (MultiDiGraph)
+        # Convert to GeoDataFrame for filtering
+        gdf = ox.graph_to_gdfs(g)
+
+        if net_type == "walk":
+            # Extract the pedestrian network graph
+            clean_g = assess.assess_pedestrian_graph(gdf, simplify=True)
+            
+            #clean_g = pedestrian.process_pedestrian_graph(gdf, assessment=assessment, dist_threshold=dist_threshold, slope_threshold=slope_threshold)
+
+        elif net_type == "bike":
+            # Extract the cycling network graph
+            clean_g = cycling.process_cycling_graph(gdf, assessment=False)
+
+        else:
+            raise Exception("Network Type Not Supported")
+                    
+        # restore original graph metadata
+        clean_g.graph = graph_metadata
+        print("finish processing")
+        print(f"Final number of edges: {clean_g.number_of_edges()}")
+        print(f"Final number of nodes: {clean_g.number_of_nodes()}")
+        return clean_g

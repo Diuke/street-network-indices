@@ -16,3 +16,6 @@ GSW 2025 Dubai/
 img/
 metrics/
 papers/
+
+# Ignore all pycache
+**/__pycache__/
