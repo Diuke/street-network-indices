@@ -12,6 +12,9 @@ General utility functions for the other modules
 
 DEG_CONVERT = 111595.75 
 
+def m_to_deg(meters):
+    return meters / DEG_CONVERT
+
 def to_wkt(geom: shapely.geometry.base.BaseGeometry) -> str:
     """
     Convert from Shapely geometry to string WKT (Well Known Text) representation.
@@ -145,7 +148,27 @@ def intersects(buffer_geom: shapely.Polygon, line: shapely.LineString) -> bool:
     bool
         Whether the intersection between the line and polygon exists.
     """
+    line.intersection
     return line.intersects(buffer_geom)
+
+def intersection(buffer_geom: shapely.Polygon, line: shapely.LineString) -> shapely.LineString:
+    """
+    Returns the intersecting line of the polygon and line.
+
+    Parameters
+    ----------
+    buffer_geom : shapely.Polygon
+        A Polygon geometry
+
+    line : shapely.LineString
+        A LineString geometry
+
+    Returns
+    -------
+    bool
+        The shared geometry.
+    """
+    return line.intersection(buffer_geom)
 
 def explore_graph(u:any, g:nx.Graph, depth:int) -> list[str]:
     """

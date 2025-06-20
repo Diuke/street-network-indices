@@ -318,7 +318,7 @@ def topology_preservation_generalization(input_graph: nx.MultiGraph | nx.MultiDi
     Works both for directed and undirected graphs.
     """
 
-    graph_metadata = copy.deepcopy(input_g.graph)
+    graph_metadata = copy.deepcopy(input_graph.graph)
     input_g = copy.deepcopy(input_graph)
 
     is_modified = True

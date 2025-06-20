@@ -6,6 +6,7 @@ import networkx as nx
 import modules.utils as utils
 import shapely
 from osmnx import settings
+from osmnx._errors import InsufficientResponseError
 
 # Public transport in OSM
 # Nodes: public_transport = stop_position
@@ -38,11 +39,18 @@ def process_public_transport_graph(geom: shapely.Polygon):
     relations = r.json()["elements"]
 
     # Obtain public transport nodes (stop position and platforms) from OpenStreetMap using OSMnx.
-    tags = {'public_transport': ['stop_position','platform']}
-    gdfox = ox.features_from_polygon(geom, tags)
+    tags = {'public_transport': ['stop_position','platform'], 'amenity': ['bus_station'], 'highway': ["bus_stop"]}
+    try:
+        gdfox = ox.features_from_polygon(geom, tags)
+    except InsufficientResponseError as ex:
+        # if no public network, return empty graph
+        print("no public network found, returning empty graph")
+        return nx.MultiDiGraph()
+
     gdfox = gdfox.reset_index()
     gdfox = gdfox.loc[gdfox["element"] == "node"]
     gdfox = gdfox.set_index("id")
+    gdfox = gdfox.drop_duplicates()
     # Build a hashmap based on the osmid for faster access
     nodes_dict = gdfox.to_dict(orient="index")
 

@@ -18,42 +18,34 @@ SIDEWALK_GRAPH_DEPTH = 5 # Induced subgraph of 10 nodes deep
 
 PEDESTRIAN_GRAPH_EDGE_TAGS = [
     "oneway",
-    "lanes",
-    "ref",
     "name",
     "highway",
     "service",
-    "footway",
     "access",
     "width",
     "sidewalk",
     "footway",
     "foot",
-    "bike",
-    "bicycle",
-    "area",
     "sidewalk:both",
     "sidewalk:left",
-    "sidewalk:right",
-    "cycleway",
-    "cycling_width"
+    "sidewalk:right"
 ]
 """Edge tags to dowload for pedestrian network."""
 
-PEDESTRIAN_GRAPH_NODE_TAGS = []
+PEDESTRIAN_GRAPH_NODE_TAGS = ["highway"]
 """Node tags to dowload for pedestrian network."""
 
 # according to https://wiki.openstreetmap.org/wiki/Guidelines_for_pedestrian_navigation
 PEDESTRIAN_TYPES = ["footway","pedestrian","living_street","path","track","steps","cycleway"]
 """Types of pedestrian streets in OSM. Extracted from the guidelines for pedestrian navigation."""
 
-PEDESTRIAN_FIELDS = ["length","name","highway","access","sidewalk","foot","footway"]
+PEDESTRIAN_FIELDS = ["length","name","highway","access","sidewalk","sidewalk:l","sidewalk:r","sidewalk:b","foot","footway","width","service"]
 """Useful fields for pedestrian networks."""
 
  # custom walk filter based on the overpass walk filter
 CUSTOM_WALK_FILTER = (
     f'["highway"]["area"!~"yes"]["access"!~"private"]' # remove areas and private access places
-    f'["highway"!~"abandoned|bus_guideway|construction|motor|no|planned|platform|proposed|raceway|razed"]' # removing non pedestrian highway types
+    f'["highway"!~"abandoned|busway|bus_guideway|construction|motor|no|planned|platform|proposed|raceway|razed"]' # removing non pedestrian highway types
     f'["foot"!~"no"]' # removing where foot is not allowed
     f'["service"!~"private"]' # removing private service streets
     f'["sidewalk"!~"separate"]["sidewalk:both"!~"separate"]["sidewalk:left"!~"separate"]["sidewalk:right"!~"separate"]' # removing streets with separately mapped sidewalks
@@ -69,7 +61,6 @@ def _pedestrian_remove_sidewalks(
         street_types:list[str], 
         process_edges:list[dict["u":any,"v":any,"key":any,"data":any]], 
         original_graph:nx.MultiGraph, 
-        nodes_gdf:geopd.GeoDataFrame,
         edges_gdf:geopd.GeoDataFrame,
         dist_threshold:int,
         slope_threshold:int,
@@ -195,6 +186,7 @@ def _pedestrian_remove_sidewalks(
                             # Remove the edge if the sidewalk and the street have a slope <= a threshold
                             abs_angle_diff = abs(m - sub_m)
                             t_half = slope_threshold / 2
+                            # check for edge cases: (e.g., 1º and 360º are actually close 1 degree).
                             if (
                                 (abs_angle_diff >= (180 - t_half) and abs_angle_diff <= (180 + t_half)) or 
                                 (abs_angle_diff >= (360 - t_half)) or 
@@ -202,10 +194,11 @@ def _pedestrian_remove_sidewalks(
                             ):
                                 
                                 # Calculate a buffer of a set meters (street_buffer) and check if the sub_geometry intersects
-                                buffer_intersects = utils.intersects(street_buffer, sub_geometry)
-                                if buffer_intersects:                                        
+                                buffer_intersects = utils.intersection(street_buffer, sub_geometry)
+                                
+                                if buffer_intersects.length > 0:                                        
                                     # The sidewalk must be at least 20% as large as the street to remove it
-                                    if sub_geometry.length > (data["geometry"].length * 0.2):
+                                    if buffer_intersects.length > (data["geometry"].length * 0.4):
                                         # Remove the edge from the original graph.
                                         if original_graph.has_edge(u,v,key):
                                             rem_u = u
@@ -240,8 +233,8 @@ def apply_pedestrian_filters(edges_g: geopd.GeoDataFrame):
 
     # Keep only roads where the "foot" attribute is pedestrian (designated, yes, permissive) or unknown (None)
     edges_g = edges_g.loc[
-        (edges_g["foot"].isin(["designated", "yes", "permissive", None]))
-    ]
+        (edges_g["foot"].isin(["designated", "yes", "permissive", "official", None]))
+    ]   
 
     # Remove multiple roads that are not pedestrian - "foot" is not specified
     edges_g = edges_g.loc[
@@ -253,7 +246,7 @@ def apply_pedestrian_filters(edges_g: geopd.GeoDataFrame):
 
 def process_pedestrian_graph(gdf: geopd.GeoDataFrame, assessment=False, slope_threshold=None, dist_threshold=None):
     """
-    Undirected graph
+    Returns an undirected graph, as pedestrians can move back and forth everywhere.
     """
     if slope_threshold is None:
         slope_threshold = SLOPE_THRESHOLD
@@ -339,7 +332,7 @@ def process_pedestrian_graph(gdf: geopd.GeoDataFrame, assessment=False, slope_th
     #   the street has a separate sidewalk.
     # Paralellize the process to speed up computations
     edge_partition = []
-    max_partition_size = 30000
+    max_partition_size = 50000
     print(f'edges: {len(edges)}')
     partitions = math.ceil(len(edges) / max_partition_size)
 
@@ -360,7 +353,7 @@ def process_pedestrian_graph(gdf: geopd.GeoDataFrame, assessment=False, slope_th
                 street_types, 
                 partition, 
                 simplified_ref, 
-                nodes_g,
+                #nodes_g,
                 edges_g,
                 dist_threshold,
                 slope_threshold,
@@ -375,7 +368,7 @@ def process_pedestrian_graph(gdf: geopd.GeoDataFrame, assessment=False, slope_th
                 street_types, 
                 partition, 
                 simplified, 
-                nodes_g,
+                #nodes_g,
                 edges_g,
                 dist_threshold,
                 slope_threshold,
@@ -443,8 +436,6 @@ def process_pedestrian_graph(gdf: geopd.GeoDataFrame, assessment=False, slope_th
             # print()
             remove_singles.append(node_id)
     new_g.remove_nodes_from(remove_singles)
-
-    ox.add_edge_travel_times
 
     # return the processed graph
     return new_g

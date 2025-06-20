@@ -285,48 +285,66 @@ def average_cycling_road_score(graph: nx.MultiGraph | nx.MultiDiGraph, add_prope
     mean_road_score = road_scores_count / bike_number_of_edges
     return mean_road_score
 
+def link_node_ratio(graph: nx.MultiGraph | nx.MultiDiGraph):
+    links = graph.number_of_edges()
+    nodes = graph.number_of_nodes()
+    return links / nodes
 
 
-def calculate_walking_metrics(walk_g: nx.MultiGraph | nx.MultiDiGraph, drive_g: nx.MultiGraph | nx.MultiDiGraph, area: float):
-    # generalizer = generalize.Generalize()
-    # natural_streets_walking_graph = generalizer.named_streets_generalization(walk_g)
-    
-    walk_number_of_edges = walk_g.number_of_edges()
-    # drive_number_of_edges = drive_g.number_of_edges()
-    # walk_drive_ratio = walk_number_of_edges / drive_number_of_edges
-
-    # connectivity = []
-    # for node_id, data in natural_streets_walking_graph.nodes(data=True):
-    #     edges_len = len(natural_streets_walking_graph[node_id])
-    #     connectivity.append(edges_len)
-
-    # connectivity_array = np.array(connectivity)
-    # connectivity_mean = np.mean(connectivity_array)
-    # connectivity_std = np.std(connectivity_array)
-    # connectivity_range = connectivity_array.max() - connectivity_array.min()
-    # connectivity_90 = (connectivity_range / 10) * 9
-    # connectivity_top_10_len = len(list(filter(lambda x: x > connectivity_90, connectivity_array)))
-
-    # intersection count for undirected graph
+def intersection_density(graph: nx.MultiGraph | nx.MultiDiGraph, area: float):
+    """
+    Returns
+    -------
+    tuple: (intersection density, number of intersections)
+    """
     intersections = 0
-    for node_id in walk_g.nodes():
-        if len(walk_g[node_id]) >= 3:
-            intersections += 1
+    if graph.is_directed():
+        # calculate intersections for directed graph
+        #  traverse entire graph
+        for node_id in graph.nodes():
+            incident = graph.in_edges(node_id)
+            adjacent = graph.out_edges(node_id)
 
-   
-    # intersection_density = intersections / area
-    return {
-        # "walk_connectivity_mean": connectivity_mean,
-        # "walk_connectivity_std": connectivity_std,
-        # "walk_connectivity_top_10p": connectivity_top_10_len
-        "walk_connectivity_mean": 0,
-        "walk_connectivity_std": 0,
-        "walk_connectivity_top_10p": 0,
+            distinct_edges = set()
+            for inc in incident: distinct_edges.add(inc)
+            for adj in adjacent: distinct_edges.add(adj)
 
-        # "walk_connectivity_mean": connectivity_mean,
-        # "walk_connectivity_std": connectivity_std,
-        # "walk_connectivity_top_10p": connectivity_top_10_len
-        "walk_connectivity_mean": 0,
-        "walk_connectivity_std": 0,
-        "walk_connectivity_top_10p": 0
-    }
+            # intersections or dead-ends
+            if len(distinct_edges) >= 3 or len(distinct_edges) == 1:
+                intersections += 1
+
+    else:
+        # calculate intersections for undirected graph
+        for node_id in graph.nodes():
+            degree = graph.degree(node_id)
+            
+            # intersections or dead-ends
+            if degree >= 3 or degree == 1:
+                intersections += 1
+    
+    return (intersections / area), intersections
+
+
+def connectivity(graph: nx.MultiGraph | nx.MultiDiGraph):
+        if graph.is_directed():
+            # calculate connectivity for directed graph
+            natural_streets_walking_graph = generalize.named_streets_generalization(graph, is_directed=True)
+
+        else:
+            # calculate connectivity for undirected graph
+            natural_streets_walking_graph = generalize.named_streets_generalization(graph, is_directed=False)
+
+        connectivity = []
+        for node_id, data in natural_streets_walking_graph.nodes(data=True):
+            edges_len = natural_streets_walking_graph.degree(node_id)
+            connectivity.append(edges_len)
+
+        connectivity_array = np.array(connectivity)
+        connectivity_mean = np.mean(connectivity_array)
+        connectivity_std = np.std(connectivity_array)
+        # connectivity_range = connectivity_array.max() - connectivity_array.min()
+        # connectivity_90 = (connectivity_range / 10) * 9
+        # connectivity_top_10_len = len(list(filter(lambda x: x > connectivity_90, connectivity_array)))
+
+        return connectivity_mean, connectivity_std
+

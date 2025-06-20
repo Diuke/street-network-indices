@@ -19,3 +19,5 @@ papers/
 
 # Ignore all pycache
 **/__pycache__/
+
+**/cache

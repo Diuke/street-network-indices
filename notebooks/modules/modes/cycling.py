@@ -6,31 +6,20 @@ import modules.utils as utils
 CYCLING_GRAPH_EDGE_TAGS = [
     "oneway",
     "lanes",
-    "ref",
     "name",
     "highway",
     "maxspeed",
-    "service",
-    "footway",
     "access",
     "width",
-    "est_width",
-    "junction",
     "sidewalk",
-    "footway",
-    "foot",
     "bike",
     "bicycle",
-    "area",
-    "sidewalk:both",
-    "sidewalk:left",
-    "sidewalk:right",
     "cycleway",
     "cycling_width"
 ]
-CYCLING_GRAPH_NODE_TAGS = []
+CYCLING_GRAPH_NODE_TAGS = ["highway"]
 
-CYCLING_FIELDS = ["length","name","highway","access","lanes","bicycle","lanes","cycleway"]
+CYCLING_FIELDS = ["length","oneway","name","highway","access","bicycle","lanes","cycleway","cycling_width","bike","width","maxspeed"]
 
  # custom cycling filter based on the overpass bike filter
 CUSTOM_CYCLING_FILTER = (
@@ -55,7 +44,8 @@ AGGREGATION_FUNCTIONS = {
 
 def process_cycling_graph(gdf: geopd.GeoDataFrame, assessment=False):
     """
-    Directed graph
+    Returns a directed graph, as cycling networks utilise most of the driving network and must follow (to some extent)
+    driving rules.
     """
     # Reset index twice to remove the u,v,k relationship and assign a unique index to
     # each node and edge
@@ -93,6 +83,12 @@ def process_cycling_graph(gdf: geopd.GeoDataFrame, assessment=False):
         )
     ]        
 
+    # add speed and travel times based on average cycling speed of 15 km/h
+    edges_g["speed_kph"] = 15 # average cycling speed of 15km/h
+    # convert distance meters to km, and speed km per hour to km per second
+    # calculate edge travel time in seconds
+    edges_g["travel_time"] = ( edges_g["length"] / 1000 ) / ( edges_g["speed_kph"] / (60 * 60) )
+    
     # reset the edges u,v,key index for rebuilding the graph.
     edges_g = edges_g.set_index(['u', 'v', 'key'])
 
@@ -103,21 +99,13 @@ def process_cycling_graph(gdf: geopd.GeoDataFrame, assessment=False):
         nodes_g = nodes_g.drop(["osmid"])
     except:
         pass
-
-    # add speed and travel times based on average cycling speed of 15 km/h
-    edges_g["speed_kph"] = 15 # average cycling speed of 15km/h
-    # convert distance meters to km, and speed km per hour to km per second
-    distance_km = edges_g["length"] / 1000
-    speed_km_sec = edges_g["speed_kph"] / (60 * 60)
-    # calculate edge travel time in seconds
-    travel_time = distance_km / speed_km_sec
-    edges_g["travel_time"] = travel_time 
-
+    
     # simplify to remove intestitial nodes
     print("start rebuilding graph")
     remade = ox.graph_from_gdfs(nodes_g, edges_g)
     print("finish rebuilding graph")
     print("start graph simplify")
+    # Use the interstitial node removal for segments that share properties "bicycle", "highway", and "cycleway".
     remade = ox.simplify_graph(remade, edge_attrs_differ=["bicycle", "highway", "cycleway"])
     print("finish graph simplify")
     new_g = ox.add_edge_bearings(remade)

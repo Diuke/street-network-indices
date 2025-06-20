@@ -14,7 +14,25 @@ DIST_THRESHOLD = 20 # meters
 SLOPE_THRESHOLD = 15 # 5 degree (angle) similarity
 SIDEWALK_GRAPH_DEPTH = 5 # Induced subgraph of 10 nodes deep
 
-DRIVING_FIELDS = ["length","oneway","lanes","ref","name","highway","maxspeed","service","width","junction"]
+DRIVING_GRAPH_NODE_TAGS = ["highway"]
+"""Node tags to dowload for driving network."""
+
+DRIVING_GRAPH_EDGE_TAGS = [
+    "oneway",
+    "lanes",
+    "ref",
+    "name",
+    "highway",
+    "service",
+    "maxspeed",
+    "access",
+    "junction",
+    "width",
+    "sidewalk"
+]
+"""Edge tags to dowload for driving network."""
+
+DRIVING_FIELDS = ["length","oneway","lanes","ref","name","highway","maxspeed","service","width","junction","sidewalk","access"]
 
 # custom cycling filter based on the overpass bike filter
 CUSTOM_DRIVING_FILTER = (
@@ -23,7 +41,6 @@ CUSTOM_DRIVING_FILTER = (
     f"escalator|footway|no|path|pedestrian|planned|platform|proposed|raceway|razed|steps|"
     f'track"]'
     f'["motor_vehicle"!~"no"]["motorcar"!~"no"]'
-    f'["service"!~"emergency_access|parking|parking_aisle|private"]'
 )
 
 def process_driving_graph(gdf: geopd.GeoDataFrame):
@@ -51,7 +68,12 @@ def process_driving_graph(gdf: geopd.GeoDataFrame):
     edge_cols = list(edges_g.columns)
     # Remove streets with no access
     if "access" in edge_cols:
-        edges_g = edges_g.loc[edges_g["access"] != "no"]
+        edges_g = edges_g.loc[edges_g["access"].isin(["yes","permissive",None])]
+    
+    # Remove certain service streets
+    service_streets = ["alley","driveway",None]
+    if "service" in edge_cols:
+        edges_g = edges_g.loc[edges_g["service"].isin(service_streets)]
 
     # reset the edges u,v,key index for rebuilding the graph.
     edges_g = edges_g.set_index(['u', 'v', 'key'])
@@ -73,10 +95,6 @@ def process_driving_graph(gdf: geopd.GeoDataFrame):
     print("finish graph simplify")
     new_g = ox.add_edge_bearings(remade)
 
-    # add speeds and travel times
-    new_g = ox.add_edge_speeds(new_g, fallback=30) #TODO CHANGE THE DEFAULT SPEED
-    new_g = ox.add_edge_travel_times(new_g)
-
     # remove single disconnected edges 
     remove_singles = []
     for u,v,key in new_g.edges(data=False, keys=True):
@@ -96,6 +114,10 @@ def process_driving_graph(gdf: geopd.GeoDataFrame):
         if len(new_g[node_id]) == 0:
             remove_singles.append(node_id)
     new_g.remove_nodes_from(remove_singles)
+
+    # add speeds and travel times
+    new_g = ox.add_edge_speeds(new_g, fallback=30) #TODO CHANGE THE DEFAULT SPEED
+    new_g = ox.add_edge_travel_times(new_g)
     
     # return the processed graph
     return new_g

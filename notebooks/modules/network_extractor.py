@@ -6,9 +6,9 @@ Networks are downloaded using OSMnx and postprocessed to reduce inconsistencies 
 """
 from __future__ import annotations
 
-import json
 import copy
 import numpy as np
+import geopandas as geopd
 import networkx as nx
 import osmnx as ox
 from osmnx import io as ox_io
@@ -28,63 +28,22 @@ class NetworkExtractor():
     """
 
     DATA_BASE_PATH = "/home/user/Desktop/JP/street-network-indices/data"
-    """
-    Absolute base path where data is stored. All saving and loading operations are made relative to this path.
-    """
+    
 
-    NODE_TAGS = ["ref", "highway", "crossing", "bicycle"]
-    """
-    Default custom node attributes to be downloaded from OSM. Modify to include more or less attributes.
-    """
-
-    WAY_TAGS = [
-        "oneway",
-        "lanes",
-        "ref",
-        "name",
-        "highway",
-        "maxspeed",
-        "service",
-        "footway",
-        "access",
-        "width",
-        "est_width",
-        "junction",
-        "sidewalk",
-        "footway",
-        "foot",
-        "bike",
-        "bicycle",
-        "area",
-        "sidewalk:both",
-        "sidewalk:left",
-        "sidewalk:right",
-        "cycleway",
-        "cycling_width"
-    ]
-    """
-    Default custom edge attributes to be downloaded from OSM. Modify to include more or less attributes.
-    """
-
-    def __init__(self):
+    def __init__(self, base_path=None):
         """
         Initialize the network extractor. 
 
         This network extractor overwrites some OSMnx functionalities. The initialization modifies the OSMNx settings.
 
-        Loads the custom Node and Way tags on the OSMnx settings, 
+        Parameters
+        ----------
+        base_path: str
+            Absolute base path where data is stored. All saving and loading operations are made relative to this path.
+
         """
-        settings.bidirectional_network_types = []
-        self.DEFAULT_NODE_TAGS: list[str] = json.loads(json.dumps(settings.useful_tags_node))
-        self.DEFAULT_WAY_TAGS: list[str] = json.loads(json.dumps(settings.useful_tags_way))
-        for n_t in self.NODE_TAGS:
-            if n_t not in settings.useful_tags_node:
-                settings.useful_tags_node.append(n_t)
-                    
-        # for w_t in self.WAY_TAGS:
-        #     if w_t not in settings.useful_tags_way:
-        #         settings.useful_tags_way.append(w_t)
-        settings.useful_tags_way = self.WAY_TAGS                       
+        self.DATA_BASE_PATH = base_path
+        settings.bidirectional_network_types = []              
 
     ####################
     # Public functions #
@@ -129,7 +88,6 @@ class NetworkExtractor():
         network_type = net_type
 
         # Select the custom filter, if available, for each type of transportation mode
-        graph_edge_tags = self.WAY_TAGS
         if net_type == "walk":
             custom_filter = pedestrian.CUSTOM_WALK_FILTER
             graph_node_tags = pedestrian.PEDESTRIAN_GRAPH_NODE_TAGS
@@ -139,9 +97,9 @@ class NetworkExtractor():
             graph_node_tags = cycling.CYCLING_GRAPH_NODE_TAGS
             graph_edge_tags = cycling.CYCLING_GRAPH_EDGE_TAGS
         elif net_type == "drive": 
-            custom_filter = None
-            graph_node_tags = pedestrian.PEDESTRIAN_GRAPH_NODE_TAGS
-            graph_edge_tags = pedestrian.PEDESTRIAN_GRAPH_EDGE_TAGS
+            custom_filter = driving.CUSTOM_DRIVING_FILTER
+            graph_node_tags = driving.DRIVING_GRAPH_NODE_TAGS
+            graph_edge_tags = driving.DRIVING_GRAPH_EDGE_TAGS
         elif net_type == "public_transport": 
             custom_filter = None
         else:
@@ -161,14 +119,11 @@ class NetworkExtractor():
             }
 
         # For driving, cycling, and pedestrian networks.
-        else:
-            # set the tags for download
-            for n_t in self.NODE_TAGS:
-                if n_t not in settings.useful_tags_node:
-                    settings.useful_tags_node.append(n_t)
-            
+        else:            
             # Set the custom tags for OSMnx.
             settings.useful_tags_way = graph_edge_tags
+            settings.useful_tags_node = graph_node_tags
+
             
             # Use the OSMnx graph_from_polygon functionality to download a preliminary network with the custom filter
             g = ox.graph_from_polygon(
@@ -192,12 +147,11 @@ class NetworkExtractor():
 
             if net_type == "walk":
                 # Load options for walk
-                assessment = options["assessment"] if "assessment" in options else False
                 dist_threshold = options["dist_threshold"] if "dist_threshold" in options else None
                 slope_threshold = options["slope_threshold"] if "slope_threshold" in options else None
 
                 # Extract the pedestrian network graph
-                clean_g = pedestrian.process_pedestrian_graph(gdf, assessment=assessment, dist_threshold=dist_threshold, slope_threshold=slope_threshold)
+                clean_g = pedestrian.process_pedestrian_graph(gdf, dist_threshold=dist_threshold, slope_threshold=slope_threshold)
 
             elif net_type == "drive":
                 # Extract the driving network graph
@@ -242,13 +196,41 @@ class NetworkExtractor():
             are represented as edges and street network segments are represented as nodes. It is False by default, but if sent as True,
             it will save nodes as LineStrings and edges as Points. 
         """
+        has_edges = g.number_of_edges() > 0
+        has_nodes = g.number_of_nodes() > 0
+
+        if not has_nodes and save_nodes:
+            raise Exception("Graph has no nodes")
+        if not has_edges and save_edges:
+            raise Exception("Graph has no edges")
+        if not has_edges and not has_nodes:
+            print("Nothing to save")
+            return
+        
+        nodes = geopd.GeoDataFrame()
+        edges = geopd.GeoDataFrame()
+
         if line_graph:
-            nodes, edges = ox.graph_to_gdfs(g, node_geometry=False, fill_edge_geometry=False)
-            nodes.crs = "epsg:4326"
-            edges.crs = "epsg:4326"
+            if not has_edges:
+                nodes = ox.graph_to_gdfs(g, node_geometry=False, fill_edge_geometry=False, edges=has_edges, nodes=has_nodes)
+                nodes.crs = "epsg:4326"
+                
+            elif not has_nodes:
+                edges = ox.graph_to_gdfs(g, node_geometry=False, fill_edge_geometry=False, edges=has_edges, nodes=has_nodes)
+                edges.crs = "epsg:4326"
+            else:
+                nodes, edges = ox.graph_to_gdfs(g, node_geometry=False, fill_edge_geometry=False, edges=has_edges, nodes=has_nodes)
+                nodes.crs = "epsg:4326"
+                edges.crs = "epsg:4326"
+
         else:
             # saving the graph nodes and edges 
-            nodes, edges = ox.graph_to_gdfs(g)
+            if not has_edges:
+                nodes = ox.graph_to_gdfs(g, edges=has_edges, nodes=has_nodes)
+            elif not has_nodes:
+                edges = ox.graph_to_gdfs(g, edges=has_edges, nodes=has_nodes)
+            else:
+                nodes, edges = ox.graph_to_gdfs(g, edges=has_edges, nodes=has_nodes)
 
             if "osmid" in list(nodes.columns):
                 nodes = nodes.reset_index(drop=True)
@@ -281,7 +263,6 @@ class NetworkExtractor():
 
         # Encoding the edges of custom properties.
         for col in edge_columns:
-            print(col)
             if edges[col].dtype == object:
                 edges[col] = edges[col].astype(str)
             if col == "key":
@@ -291,18 +272,20 @@ class NetworkExtractor():
             if col == "travel_time":
                 edges[col] = edges[col].astype(np.float32)
             if col == "grade":
+                edges[col] = edges[col].replace("None",None)
                 edges[col] = edges[col].astype(np.float32)
             if col == "grade_abs":
+                edges[col] = edges[col].replace("None",None)
                 edges[col] = edges[col].astype(np.float32)
             if col == "length":
                 edges[col] = edges[col].astype(np.float32)           
-                
+        
         if save_nodes:
             nodes.to_file(f"{self.DATA_BASE_PATH}/{path}_nodes.shp", encoding='utf-8')  
         if save_edges:
             edges.to_file(f"{self.DATA_BASE_PATH}/{path}_edges.shp", encoding='utf-8')  
 
-    def save_as_graph(self, g: nx.Graph, path: str):
+    def save_as_graph(self, g: nx.Graph, path: str, full_path=None):
         """
         Save the received graph using the GraphML format. 
 
@@ -314,7 +297,11 @@ class NetworkExtractor():
         path (str) :
             Relative path with respect to the DATA_BASE_PATH in which the shapefile will be saved.
         """
-        ox_io.save_graphml(g, f'{self.DATA_BASE_PATH}/{path}.graphml')
+        if full_path is not None:
+            save_path = full_path
+        else:
+            save_path = f'{self.DATA_BASE_PATH}/{path}.graphml'
+        ox_io.save_graphml(g, save_path)
         return
 
     def plot_graph(self, g: nx.Graph):
@@ -465,7 +452,6 @@ class NetworkExtractor():
         network_type = net_type
 
         # Select the custom filter, if available, for each type of transportation mode
-        graph_edge_tags = self.WAY_TAGS
         if net_type == "walk":
             custom_filter = pedestrian.CUSTOM_WALK_FILTER
             graph_node_tags = pedestrian.PEDESTRIAN_GRAPH_NODE_TAGS
@@ -480,14 +466,10 @@ class NetworkExtractor():
         
         # avoid cache problems by disabling it
         settings.use_cache = False
-
-        # set the tags for download
-        for n_t in self.NODE_TAGS:
-            if n_t not in settings.useful_tags_node:
-                settings.useful_tags_node.append(n_t)
         
         # Set the custom tags for OSMnx.
         settings.useful_tags_way = graph_edge_tags
+        settings.useful_tags_node = graph_node_tags
         
         # Use the OSMnx graph_from_polygon functionality to download a preliminary network with the custom filter
         g = ox.graph_from_polygon(
