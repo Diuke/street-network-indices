@@ -9,6 +9,7 @@ import osmnx as ox
 import pandas as pd
 import matplotlib.pyplot as plt
 import geopandas as geopd
+import scipy.stats
 import shapely
 from geopy import distance as geopy_distance
 from shapely import ops, LineString
@@ -60,8 +61,6 @@ def calculate_all_indices(graph: nx.MultiGraph | nx.MultiDiGraph, area: float):
         else:
             network_sum += ops.transform(transform, data["geometry"]).length
 
-
-
     result["circuity"] = network_sum / euclidean_sum
     result["average_steepness"] = elevation_sum / edges_len
     result["orientation_entropy"] = ox.bearing.orientation_entropy(graph, min_length=15, weight="length")
@@ -74,14 +73,17 @@ def orientation_entropy(graph: nx.MultiGraph | nx.MultiDiGraph):
     orientation_entropy = ox.bearing.orientation_entropy(graph, min_length=15, weight="length")
     return orientation_entropy
     
-def average_steepness(graph: nx.MultiGraph | nx.MultiDiGraph):
-    elevation_sum = 0
-    edges_len = graph.number_of_edges()
-    for u,v,key,data in graph.edges(data=True, keys=True):
-        elevation_sum += data["grade_abs"]
+def steepness(graph: nx.MultiGraph | nx.MultiDiGraph):
+    # build the numpy array with the edge values of grade_abs
+    abs_grade_np = np.array(list(graph.edges(data="grade_abs", keys=True)), dtype=float)[:,3]
 
-    average_steepness = elevation_sum / edges_len
-    return average_steepness
+    abs_grade_mean = np.nanmean(abs_grade_np, 0)
+    abs_grade_median = np.nanmedian(abs_grade_np, 0)
+    abs_grade_range = np.nanmax(abs_grade_np, 0) - np.nanmin(abs_grade_np, 0)
+    abs_grade_std = np.nanstd(abs_grade_np, 0)
+    abs_grade_iqr = scipy.stats.iqr(abs_grade_np, 0, nan_policy='omit')
+
+    return abs_grade_mean, abs_grade_median, abs_grade_range, abs_grade_std, abs_grade_iqr
 
 def circuity(graph: nx.MultiGraph | nx.MultiDiGraph, add_property=False):        
     # transform for conversion from lat/lng to x/y
@@ -91,8 +93,6 @@ def circuity(graph: nx.MultiGraph | nx.MultiDiGraph, add_property=False):
     network_sum = 0
 
     for u,v,key,data in graph.edges(data=True, keys=True):
-        # p1 = (graph._node[u]["geometry"].coords[0][1], graph._node[u]["geometry"].coords[0][0])
-        # p2 = (graph._node[v]["geometry"].coords[0][1], graph._node[v]["geometry"].coords[0][0])
         p1 = (graph._node[u]["y"], graph._node[u]["x"])
         p2 = (graph._node[v]["y"], graph._node[v]["x"])
         
@@ -107,35 +107,48 @@ def circuity(graph: nx.MultiGraph | nx.MultiDiGraph, add_property=False):
         network_sum += s_len
 
         if add_property:
-            graph[u][v][key]["circuity"] = network_sum / euclidean_sum
+            graph[u][v][key]["circuity"] = s_len / euclidean_dist
 
 
     circuity = network_sum / euclidean_sum
 
     return circuity
     
-def average_street_length(graph: nx.MultiGraph | nx.MultiDiGraph, add_property=False, min_length: float = 10):
+def street_length(graph: nx.MultiGraph | nx.MultiDiGraph, min_length: float = 10):
+    """
+    Returns:
+    --------
+    tuple ():
+        Mean, median, range, standard deviation, interquantile range, total
+    """
     # transform for conversion from lat/lng to x/y
     transform = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True).transform
 
-    network_sum = 0
-    valid_streets = 0
+    all_lengths = []
 
     for u,v,key,data in graph.edges(data=True, keys=True):
         if "length" in data:
             s_len = data["length"]
         else:
-            s_len += ops.transform(transform, data["geometry"]).length
+            s_len = ops.transform(transform, data["geometry"]).length
+            graph[u][v][key]["length"] = s_len
 
         # only consider streets longer than a certain threshold
         if s_len > min_length:
-            network_sum += s_len
-            valid_streets += 1
+            all_lengths.append(s_len)
+        else:
+            all_lengths.append(np.nan)
 
+    np_street_len = np.array(all_lengths)
+    st_len_mean = np.nanmean(np_street_len, 0)
+    st_len_median = np.nanmedian(np_street_len, 0)
+    st_len_range = np.nanmax(np_street_len) - np.nanmin(np_street_len)
+    st_len_std = np.nanstd(np_street_len, 0)
+    st_len_iqr = scipy.stats.iqr(np_street_len, 0, nan_policy='omit')
+    st_len_total = np.nansum(np_street_len, 0)
     # get the average with only the amount of valid streets
-    average_street_length = network_sum / valid_streets
 
-    return average_street_length
+    return st_len_mean, st_len_median, st_len_range, st_len_std, st_len_iqr, st_len_total
 
 
 def data_has_sidewalk(data):
@@ -286,8 +299,13 @@ def average_cycling_road_score(graph: nx.MultiGraph | nx.MultiDiGraph, add_prope
     return mean_road_score
 
 def link_node_ratio(graph: nx.MultiGraph | nx.MultiDiGraph):
-    links = graph.number_of_edges()
-    nodes = graph.number_of_nodes()
+    if graph.is_directed():
+        g = graph.to_undirected()
+    else:
+        g = graph.copy()
+
+    links = g.number_of_edges()
+    nodes = g.number_of_nodes()
     return links / nodes
 
 

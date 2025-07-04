@@ -316,13 +316,21 @@ class NetworkExtractor():
         """
         return shapely.from_wkt(point_string)
     
-    def __deserialize_bearing(self, bearing: None) -> shapely.Point :
+    def __deserialize_bearing(self, bearing: str|None) -> shapely.Point :
         """ 
         Private method used for deserializing the bearing angle of streets.
         It is necessary to create this function, as a None bearing is saved to file as a string.
         """
         if bearing == "None": return None
         else: return float(bearing)
+
+    def __deserialize_grade(self, grade: str|None) -> shapely.Point :
+        """ 
+        Private method used for deserializing the bearing angle of streets.
+        It is necessary to create this function, as a None bearing is saved to file as a string.
+        """
+        if grade == "None": return None
+        else: return float(grade)
 
     def load_graph(self, path: str) -> nx.MultiGraph | nx.MultiDiGraph:
         """
@@ -334,7 +342,9 @@ class NetworkExtractor():
             "geometry": self.__deserialize_point_string
         }
         edge_types = {
-            "bearing": self.__deserialize_bearing
+            "bearing": self.__deserialize_bearing,
+            "grade": self.__deserialize_grade,
+            "grade_abs": self.__deserialize_grade,
         }
         return ox_io.load_graphml(
             f'{self.DATA_BASE_PATH}/{path}.graphml', 
@@ -401,7 +411,13 @@ class NetworkExtractor():
             DEM_location = f'{self.DATA_BASE_PATH}/DEM/{city_name}_DEM.tif'
             ox.add_node_elevations_raster(g, DEM_location, cpus=4)
             ox.add_edge_grades(g)
-
+            # check that elevations make sense and put to 0 those above a theoretical maximum
+            for u,v,key,data in g.edges(data=True, keys=True):
+                if data["grade"] <= -1 or data["grade"] >= 1:
+                    #If the slope is too large, remove it as None
+                    g[u][v][key]["grade"] = None
+                    g[u][v][key]["grade_abs"] = None
+                    
         return g
     
     def download_network_sync(self, 

@@ -332,7 +332,7 @@ def process_pedestrian_graph(gdf: geopd.GeoDataFrame, assessment=False, slope_th
     #   the street has a separate sidewalk.
     # Paralellize the process to speed up computations
     edge_partition = []
-    max_partition_size = 50000
+    max_partition_size = 100000
     print(f'edges: {len(edges)}')
     partitions = math.ceil(len(edges) / max_partition_size)
 

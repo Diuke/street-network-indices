@@ -223,3 +223,38 @@ def explore_graph(u:any, g:nx.Graph, depth:int) -> list[str]:
     edges_to_visit_list = list(map(lambda x: x.split(","), list(edges_to_visit)))
     return list(edges_to_visit_list)
 
+
+def koppen_geiger_class(code):
+    """
+    Get the readable Koppen Geiger class from a mapping code used in the GHS database.
+    """
+    if code == 1: return  "Af   Tropical, rainforest"
+    if code == 2: return  "Am   Tropical, monsoon"
+    if code == 3: return  "Aw   Tropical, savannah"
+    if code == 4: return  "BWh  Arid, desert, hot"
+    if code == 5: return  "BWk  Arid, desert, cold"
+    if code == 6: return  "BSh  Arid, steppe, hot"
+    if code == 7: return  "BSk  Arid, steppe, cold"
+    if code == 8: return  "Csa  Temperate, dry summer, hot summer"
+    if code == 9: return  "Csb  Temperate, dry summer, warm summer"
+    if code == 10: return "Csc  Temperate, dry summer, cold summer"
+    if code == 11: return "Cwa  Temperate, dry winter, hot summer"
+    if code == 12: return "Cwb  Temperate, dry winter, warm summer"
+    if code == 13: return "Cwc  Temperate, dry winter, cold summer"
+    if code == 14: return "Cfa  Temperate, no dry season, hot summer"
+    if code == 15: return "Cfb  Temperate, no dry season, warm summer"
+    if code == 16: return "Cfc  Temperate, no dry season, cold summer"
+    if code == 17: return "Dsa  Cold, dry summer, hot summer"
+    if code == 18: return "Dsb  Cold, dry summer, warm summer"
+    if code == 19: return "Dsc  Cold, dry summer, cold summer"
+    if code == 20: return "Dsd  Cold, dry summer, very cold winter"
+    if code == 21: return "Dwa  Cold, dry winter, hot summer"
+    if code == 22: return "Dwb  Cold, dry winter, warm summer"
+    if code == 23: return "Dwc  Cold, dry winter, cold summer"
+    if code == 24: return "Dwd  Cold, dry winter, very cold winter"
+    if code == 25: return "Dfa  Cold, no dry season, hot summer"
+    if code == 26: return "Dfb  Cold, no dry season, warm summer"
+    if code == 27: return "Dfc  Cold, no dry season, cold summer"
+    if code == 28: return "Dfd  Cold, no dry season, very cold winte"
+    if code == 29: return "ET   Polar, tundra"
+    if code == 30: return "EF   Polar, frost"

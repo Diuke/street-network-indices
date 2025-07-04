@@ -76,10 +76,8 @@ def download_pois(area_of_interest: shapely.Polygon):
 
 import numpy as np
 
-def set_pois_to_edges(g: nx.MultiDiGraph | nx.MultiGraph, pois_df):
-    graph = g.copy()
-    
-    nx.set_edge_attributes(graph, None, "amenities")
+def set_pois_to_edges(graph: nx.MultiDiGraph | nx.MultiGraph, pois_df):    
+    nx.set_edge_attributes(graph, values=None, name="amenities")
     buffer_distance = 100 #meters
     buffer_meters = utils.m_to_deg(buffer_distance)
 
